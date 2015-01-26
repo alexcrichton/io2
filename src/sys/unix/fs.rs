@@ -272,10 +272,9 @@ impl File {
         unsafe fn os_datasync(fd: c_int) -> c_int { libc::fsync(fd) }
     }
 
-    pub fn truncate(&mut self) -> io::Result<()> {
-        let position = try!(self.seek(SeekPos::FromCur(0)));
+    pub fn truncate(&mut self, size: u64) -> io::Result<()> {
         try!(call!(unsafe {
-            libc::ftruncate(self.0.raw(), position as libc::off_t)
+            libc::ftruncate(self.0.raw(), size as libc::off_t)
         }));
         Ok(())
     }

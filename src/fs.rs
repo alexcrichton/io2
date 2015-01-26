@@ -153,8 +153,8 @@ impl File {
     /// be shrunk. If it is greater than the current file's size, then the file
     /// will be extended to `size` and have all of the intermediate data filled
     /// in with 0s.
-    pub fn truncate(&mut self) -> io::Result<()> {
-        self.inner.truncate()
+    pub fn truncate(&mut self, size: u64) -> io::Result<()> {
+        self.inner.truncate(size)
     }
 
     /// Queries information about the underlying file.

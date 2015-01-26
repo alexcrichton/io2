@@ -219,8 +219,17 @@ impl File {
 
     pub fn datasync(&mut self) -> io::Result<()> { self.fsync() }
 
-    pub fn truncate(&mut self) -> io::Result<()> {
-        try!(call!(unsafe { libc::SetEndOfFile(self.handle.raw()) }));
+    pub fn truncate(&mut self, size: u64) -> io::Result<()> {
+        let mut info = c::FILE_END_OF_FILE_INFO {
+            EndOfFile: size as libc::LARGE_INTEGER,
+        };
+        let size = mem::size_of_val(&info);
+        try!(call!(unsafe {
+            c::SetFileInformationByHandle(self.handle.raw(),
+                                          c::FileEndOfFileInfo,
+                                          &mut info as *mut _ as *mut _,
+                                          size as libc::DWORD)
+        }));
         Ok(())
     }
 

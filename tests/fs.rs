@@ -618,9 +618,7 @@ fn truncate_works() {
 
     // Do some simple things with truncation
     assert_eq!(check!(file.file_attr()).size(), 3);
-    check!(file.seek(SeekPos::FromStart(10)));
-    check!(file.truncate());
-    check!(file.seek(SeekPos::FromStart(3)));
+    check!(file.truncate(10));
     assert_eq!(check!(file.file_attr()).size(), 10);
     check!(file.write(b"bar"));
     check!(file.flush());
@@ -633,9 +631,7 @@ fn truncate_works() {
     // Truncate to a smaller length, don't seek, and then write something.
     // Ensure that the intermediate zeroes are all filled in (we're seeked
     // past the end of the file).
-    check!(file.seek(SeekPos::FromStart(2)));
-    check!(file.truncate());
-    check!(file.seek(SeekPos::FromStart(6)));
+    check!(file.truncate(2));
     assert_eq!(check!(file.file_attr()).size(), 2);
     check!(file.write(b"wut"));
     check!(file.flush());
