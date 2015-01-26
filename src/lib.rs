@@ -9,8 +9,8 @@ extern crate libc;
 extern crate unicode;
 
 pub use std::{slice, ptr, cmp, vec, iter, marker, mem, str, collections, path};
-pub use std::{string, prelude, os, result, option, boxed, clone, error, fmt};
-pub use std::{num, ffi, rc, sync};
+pub use std::{string, prelude, result, option, boxed, clone, error, fmt};
+pub use std::{num, rc, sync, rt, hash, ops, ffi, usize};
 
 mod borrow {
     use marker::Sized;
@@ -21,6 +21,8 @@ mod borrow {
 
 pub mod io;
 pub mod fs;
+pub mod env;
+pub mod os;
 
 #[cfg(unix)]    #[path = "sys/unix/mod.rs"]    mod sys;
 #[cfg(windows)] #[path = "sys/windows/mod.rs"] mod sys;

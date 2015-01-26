@@ -7,8 +7,6 @@
 // <LICENSE-MIT or http://opensource.org/licenses/MIT>, at your
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
-//
-// ignore-lexer-test FIXME #15679
 
 use core::prelude::*;
 
@@ -38,7 +36,7 @@ pub struct ReadDir(fs_imp::ReadDir);
 pub struct DirEntry(fs_imp::DirEntry);
 #[derive(Clone)]
 pub struct OpenOptions(fs_imp::OpenOptions);
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Show)]
 pub struct FilePermission(fs_imp::FilePermission);
 
 impl File {
@@ -139,38 +137,25 @@ impl File {
         &self.path
     }
 
-//     /// Synchronizes all modifications to this file to its permanent storage
-//     /// device. This will flush any internal buffers necessary to perform this
-//     /// operation.
-//     pub fn fsync(&mut self) -> IoResult<()> {
-//         self.fd.fsync()
-//             .update_err("couldn't fsync file",
-//                         |e| format!("{}; path={}", e, self.path.display()))
-//     }
-//
-//     /// This function is similar to `fsync`, except that it may not synchronize
-//     /// file metadata to the filesystem. This is intended for use cases that
-//     /// must synchronize content, but don't need the metadata on disk. The goal
-//     /// of this method is to reduce disk operations.
-//     pub fn datasync(&mut self) -> IoResult<()> {
-//         self.fd.datasync()
-//             .update_err("couldn't datasync file",
-//                         |e| format!("{}; path={}", e, self.path.display()))
-//     }
-//
-//     /// Either truncates or extends the underlying file, updating the size of
-//     /// this file to become `size`. This is equivalent to unix's `truncate`
-//     /// function.
-//     ///
-//     /// If the `size` is less than the current file's size, then the file will
-//     /// be shrunk. If it is greater than the current file's size, then the file
-//     /// will be extended to `size` and have all of the intermediate data filled
-//     /// in with 0s.
-//     pub fn truncate(&mut self, size: i64) -> IoResult<()> {
-//         self.fd.truncate(size)
-//             .update_err("couldn't truncate file", |e|
-//                 format!("{}; path={}; size={}", e, self.path.display(), size))
-//     }
+    /// This function is similar to `flush`, except that it may not synchronize
+    /// file metadata to the filesystem. This is intended for use cases that
+    /// must synchronize content, but don't need the metadata on disk. The goal
+    /// of this method is to reduce disk operations.
+    pub fn flush_data(&mut self) -> io::Result<()> {
+        self.inner.datasync()
+    }
+
+    /// Either truncates or extends the underlying file, updating the size of
+    /// this file to become `size`. This is equivalent to unix's `truncate`
+    /// function.
+    ///
+    /// If the `size` is less than the current file's size, then the file will
+    /// be shrunk. If it is greater than the current file's size, then the file
+    /// will be extended to `size` and have all of the intermediate data filled
+    /// in with 0s.
+    pub fn truncate(&mut self) -> io::Result<()> {
+        self.inner.truncate()
+    }
 
     /// Queries information about the underlying file.
     pub fn file_attr(&self) -> io::Result<FileAttr> {
@@ -186,6 +171,9 @@ impl Read for File {
 impl Write for File {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.inner.write(buf)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.fsync()
     }
 }
 impl Seek for File {
@@ -225,6 +213,11 @@ impl FileAttr {
     pub fn is_file(&self) -> bool { self.0.is_file() }
     pub fn size(&self) -> u64 { self.0.size() }
     pub fn perm(&self) -> FilePermission { FilePermission(self.0.perm()) }
+
+    #[unstable = "return type may change (as well as name)"]
+    pub fn accessed(&self) -> u64 { self.0.accessed() }
+    #[unstable = "return type may change (as well as name)"]
+    pub fn modified(&self) -> u64 { self.0.modified() }
 }
 
 impl FilePermission {
@@ -581,16 +574,14 @@ impl PathExt for Path {
     }
 }
 
-// /// Changes the timestamps for a file's last modification and access time.
-// /// The file at the path specified will have its last access time set to
-// /// `atime` and its modification time set to `mtime`. The times specified should
-// /// be in milliseconds.
-// // FIXME(#10301) these arguments should not be u64
-// pub fn change_file_times(path: &Path, atime: u64, mtime: u64) -> IoResult<()> {
-//     fs_imp::utime(path, atime, mtime)
-//            .update_err("couldn't change_file_times", |e|
-//                format!("{}; path={}", e, path.display()))
-// }
+/// Changes the timestamps for a file's last modification and access time.
+/// The file at the path specified will have its last access time set to
+/// `atime` and its modification time set to `mtime`. The times specified should
+/// be in milliseconds.
+#[unstable = "argument types and argument counts may change"]
+pub fn change_file_times(path: &Path, atime: u64, mtime: u64) -> io::Result<()> {
+    fs_imp::utimes(path, atime, mtime)
+}
 
 /// Changes the permission mode bits found on a file or a directory. This
 /// function takes a mask from the `io` module
@@ -616,10 +607,3 @@ impl PathExt for Path {
 pub fn set_perm(path: &Path, perm: FilePermission) -> io::Result<()> {
     fs_imp::set_perm(path, perm.0)
 }
-
-// /// Change the user and group owners of a file at the specified path.
-// pub fn chown(path: &Path, uid: int, gid: int) -> IoResult<()> {
-//     fs_imp::chown(path, uid, gid)
-//            .update_err("couldn't chown path", |e|
-//                format!("{}; path={}; uid={}; gid={}", e, path.display(), uid, gid))
-// }

@@ -20,6 +20,7 @@ use mem;
 use path::{Path, GenericPath};
 use ptr;
 use rc::Rc;
+use sys::c;
 use sys::fd::FileDesc;
 use vec::Vec;
 
@@ -48,7 +49,7 @@ pub struct OpenOptions {
     mode: mode_t,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Show)]
 pub struct FilePermission { mode: mode_t }
 
 impl FileAttr {
@@ -61,6 +62,18 @@ impl FileAttr {
     pub fn size(&self) -> u64 { self.stat.st_size as u64 }
     pub fn perm(&self) -> FilePermission {
         FilePermission { mode: (self.stat.st_mode as mode_t) & 0o777 }
+    }
+
+    pub fn accessed(&self) -> u64 {
+        self.mktime(self.stat.st_atime as u64, self.stat.st_atime_nsec as u64)
+    }
+    pub fn modified(&self) -> u64 {
+        self.mktime(self.stat.st_mtime as u64, self.stat.st_mtime_nsec as u64)
+    }
+
+    // times are in milliseconds (currently)
+    fn mktime(&self, secs: u64, nsecs: u64) -> u64 {
+        secs * 1000 + nsecs / 1000000
     }
 
 // fn mkstat(stat: &libc::stat) -> FileStat {
@@ -237,42 +250,35 @@ impl File {
         try!(call!(unsafe { libc::fstat(self.0.raw(), &mut stat) }));
         Ok(FileAttr { stat: stat })
     }
-//
-//     pub fn fsync(&self) -> IoResult<()> {
-//         mkerr_libc(retry(|| unsafe { libc::fsync(self.fd()) }))
-//     }
-//
-//     pub fn datasync(&self) -> IoResult<()> {
-//         return mkerr_libc(os_datasync(self.fd()));
-//
-//         #[cfg(any(target_os = "macos", target_os = "ios"))]
-//         fn os_datasync(fd: c_int) -> c_int {
-//             unsafe { libc::fcntl(fd, libc::F_FULLFSYNC) }
-//         }
-//         #[cfg(target_os = "linux")]
-//         fn os_datasync(fd: c_int) -> c_int {
-//             retry(|| unsafe { libc::fdatasync(fd) })
-//         }
-//         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux")))]
-//         fn os_datasync(fd: c_int) -> c_int {
-//             retry(|| unsafe { libc::fsync(fd) })
-//         }
-//     }
-//
-//     pub fn truncate(&self, offset: i64) -> IoResult<()> {
-//         mkerr_libc(retry(|| unsafe {
-//             libc::ftruncate(self.fd(), offset as libc::off_t)
-//         }))
-//     }
-//
-//     pub fn fstat(&self) -> IoResult<FileStat> {
-//         let mut stat: libc::stat = unsafe { mem::zeroed() };
-//         match unsafe { libc::fstat(self.fd(), &mut stat) } {
-//             0 => Ok(mkstat(&stat)),
-//             _ => Err(super::last_error()),
-//         }
-//     }
-//
+
+    pub fn fsync(&mut self) -> io::Result<()> {
+        try!(call!(unsafe { libc::fsync(self.0.raw()) }));
+        Ok(())
+    }
+
+    pub fn datasync(&mut self) -> io::Result<()> {
+        try!(call!(unsafe { os_datasync(self.0.raw()) }));
+        return Ok(());
+
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        unsafe fn os_datasync(fd: c_int) -> c_int {
+            libc::fcntl(fd, libc::F_FULLFSYNC)
+        }
+        #[cfg(target_os = "linux")]
+        unsafe fn os_datasync(fd: c_int) -> c_int { libc::fdatasync(fd) }
+        #[cfg(not(any(target_os = "macos",
+                      target_os = "ios",
+                      target_os = "linux")))]
+        unsafe fn os_datasync(fd: c_int) -> c_int { libc::fsync(fd) }
+    }
+
+    pub fn truncate(&mut self) -> io::Result<()> {
+        let position = try!(self.seek(SeekPos::FromCur(0)));
+        try!(call!(unsafe {
+            libc::ftruncate(self.0.raw(), position as libc::off_t)
+        }));
+        Ok(())
+    }
 }
 
 impl Read for File {
@@ -397,44 +403,9 @@ pub fn lstat(p: &Path) -> io::Result<FileAttr> {
     Ok(FileAttr { stat: stat })
 }
 
-// pub fn utime(p: &Path, atime: u64, mtime: u64) -> IoResult<()> {
-//     let p = cstr(p);
-//     let buf = libc::utimbuf {
-//         actime: (atime / 1000) as libc::time_t,
-//         modtime: (mtime / 1000) as libc::time_t,
-//     };
-//     mkerr_libc(unsafe { libc::utime(p.as_ptr(), &buf) })
-// }
-//
-// #[cfg(test)]
-// mod tests {
-//     use super::FileDesc;
-//     use libc;
-//     use os;
-//     use prelude::v1::*;
-//
-//     #[cfg_attr(target_os = "freebsd", ignore)] // hmm, maybe pipes have a tiny buffer
-//     #[test]
-//     fn test_file_desc() {
-//         // Run this test with some pipes so we don't have to mess around with
-//         // opening or closing files.
-//         let os::Pipe { reader, writer } = unsafe { os::pipe().unwrap() };
-//         let mut reader = FileDesc::new(reader, true);
-//         let mut writer = FileDesc::new(writer, true);
-//
-//         writer.write(b"test").ok().unwrap();
-//         let mut buf = [0u8; 4];
-//         match reader.read(&mut buf) {
-//             Ok(4) => {
-//                 assert_eq!(buf[0], 't' as u8);
-//                 assert_eq!(buf[1], 'e' as u8);
-//                 assert_eq!(buf[2], 's' as u8);
-//                 assert_eq!(buf[3], 't' as u8);
-//             }
-//             r => panic!("invalid read: {:?}", r),
-//         }
-//
-//         assert!(writer.read(&mut buf).is_err());
-//         assert!(reader.write(&buf).is_err());
-//     }
-// }
+pub fn utimes(p: &Path, atime: u64, mtime: u64) -> io::Result<()> {
+    let p = cstr(p);
+    let buf = [super::ms_to_timeval(atime), super::ms_to_timeval(mtime)];
+    try!(call!(unsafe { c::utimes(p.as_ptr(), buf.as_ptr()) }));
+    Ok(())
+}

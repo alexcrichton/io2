@@ -271,10 +271,7 @@ pub mod compat {
         use libc::c_uint;
         use libc::types::os::arch::extra::{DWORD, LPCWSTR, BOOLEAN, HANDLE};
         use libc::consts::os::extra::ERROR_CALL_NOT_IMPLEMENTED;
-
-        extern "system" {
-            fn SetLastError(dwErrCode: DWORD);
-        }
+        use sys::c::SetLastError;
 
         compat_fn! {
             kernel32::CreateSymbolicLinkW(_lpSymlinkFileName: LPCWSTR,
@@ -335,4 +332,14 @@ extern "system" {
     pub fn GetFileInformationByHandle(hFile: libc::HANDLE,
                             lpFileInformation: LPBY_HANDLE_FILE_INFORMATION)
                             -> libc::BOOL;
+
+    pub fn SetLastError(dwErrCode: libc::DWORD);
+    pub fn GetCommandLineW() -> *mut libc::LPCWSTR;
+    pub fn LocalFree(ptr: *mut libc::c_void);
+    pub fn CommandLineToArgvW(lpCmdLine: *mut libc::LPCWSTR,
+                              pNumArgs: *mut libc::c_int) -> *mut *mut u16;
+    pub fn SetFileTime(hFile: libc::HANDLE,
+                       lpCreationTime: *const libc::FILETIME,
+                       lpLastAccessTime: *const libc::FILETIME,
+                       lpLastWriteTime: *const libc::FILETIME) -> libc::BOOL;
 }

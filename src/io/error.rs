@@ -13,7 +13,6 @@ use clone::Clone;
 use error::Error as StdError;
 use fmt;
 use option::Option::{self, Some, None};
-use os;
 use result;
 use string::String;
 use sys;
@@ -38,7 +37,7 @@ pub struct Error {
 
 #[derive(PartialEq, Eq, Clone, Show)]
 enum Repr {
-    Os(u32),
+    Os(i32),
     Custom(Box<Custom>),
 }
 
@@ -115,11 +114,11 @@ impl Error {
     /// `GetLastError` on Windows) and will return a corresponding instance of
     /// `Error` for the error code.
     pub fn last_os_error() -> Error {
-        Error::from_os_error(os::errno() as u32)
+        Error::from_os_error(sys::os::errno())
     }
 
     /// Creates a new instance of an `Error` from a particular OS error code.
-    pub fn from_os_error(code: u32) -> Error {
+    pub fn from_os_error(code: i32) -> Error {
         Error { repr: Repr::Os(code) }
     }
 
@@ -142,7 +141,7 @@ impl Error {
     /// Returns a detailed error message for this error (if one is available)
     pub fn detail(&self) -> Option<String> {
         match self.repr {
-            Repr::Os(code) => Some(os::error_string(code as usize)),
+            Repr::Os(code) => Some(sys::os::error_string(code)),
             Repr::Custom(ref s) => s.detail.clone(),
         }
     }
@@ -152,7 +151,7 @@ impl fmt::Display for Error {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match self.repr {
             Repr::Os(code) => {
-                let detail = os::error_string(code as usize);
+                let detail = sys::os::error_string(code);
                 write!(fmt, "{} (os error {})", detail, code)
             }
             Repr::Custom(ref c) => {

@@ -212,26 +212,17 @@ impl File {
         }
     }
 
-//     pub fn fsync(&mut self) -> IoResult<()> {
-//         super::mkerr_winbool(unsafe {
-//             libc::FlushFileBuffers(self.handle)
-//         })
-//     }
-//
-//     pub fn datasync(&mut self) -> IoResult<()> { return self.fsync(); }
-//
-//     pub fn truncate(&mut self, offset: i64) -> IoResult<()> {
-//         let orig_pos = try!(self.tell());
-//         let _ = try!(self.seek(offset, SeekSet));
-//         let ret = unsafe {
-//             match libc::SetEndOfFile(self.handle) {
-//                 0 => Err(super::last_error()),
-//                 _ => Ok(())
-//             }
-//         };
-//         let _ = self.seek(orig_pos as i64, SeekSet);
-//         return ret;
-//     }
+    pub fn fsync(&mut self) -> io::Result<()> {
+        try!(call!(unsafe { libc::FlushFileBuffers(self.handle.raw()) }));
+        Ok(())
+    }
+
+    pub fn datasync(&mut self) -> io::Result<()> { self.fsync() }
+
+    pub fn truncate(&mut self) -> io::Result<()> {
+        try!(call!(unsafe { libc::SetEndOfFile(self.handle.raw()) }));
+        Ok(())
+    }
 
     pub fn file_attr(&self) -> io::Result<FileAttr> {
         unsafe {
@@ -312,6 +303,16 @@ impl FileAttr {
     }
     pub fn perm(&self) -> FilePermission {
         FilePermission { attrs: self.data.dwFileAttributes }
+    }
+
+    pub fn accessed(&self) -> u64 { self.to_ms(&self.data.ftLastAccessTime) }
+    pub fn modified(&self) -> u64 { self.to_ms(&self.data.ftLastWriteTime) }
+
+    fn to_ms(&self, ft: &libc::FILETIME) -> u64 {
+        // FILETIME is in 100ns intervals and there are 10000 intervals in a
+        // millisecond.
+        let bits = (ft.dwLowDateTime as u64) | ((ft.dwHighDateTime as u64) << 32);
+        bits / 10000
     }
 }
 
@@ -466,19 +467,15 @@ pub fn set_perm(p: &Path, perm: FilePermission) -> io::Result<()> {
     }
 }
 
-// // FIXME: move this to platform-specific modules (for now)?
-// pub fn lstat(_p: &Path) -> IoResult<FileStat> {
-//     // FIXME: implementation is missing
-//     Err(super::unimpl())
-// }
-//
-// pub fn utime(p: &Path, atime: u64, mtime: u64) -> IoResult<()> {
-//     let mut buf = libc::utimbuf {
-//         actime: atime as libc::time64_t,
-//         modtime: mtime as libc::time64_t,
-//     };
-//     let p = try!(to_utf16(p));
-//     mkerr_libc(unsafe {
-//         libc::wutime(p.as_ptr(), &mut buf)
-//     })
-// }
+pub fn utimes(p: &Path, atime: u64, mtime: u64) -> io::Result<()> {
+    let atime = super::ms_to_filetime(atime);
+    let mtime = super::ms_to_filetime(mtime);
+
+    let mut o = OpenOptions::new();
+    o.write(true);
+    let f = try!(File::open(p, &o));
+    try!(call!(unsafe {
+        c::SetFileTime(f.handle.raw(), 0 as *const _, &atime, &mtime)
+    }));
+    Ok(())
+}

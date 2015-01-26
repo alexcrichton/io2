@@ -594,51 +594,56 @@ fn chmod_works() {
     }
 }
 
-// #[test]
-// fn sync_doesnt_kill_anything() {
-//     let tmpdir = tmpdir();
-//     let path = tmpdir.join("in.txt");
-//
-//     let mut file = check!(File::open_mode(&path, old_io::Open, old_io::ReadWrite));
-//     check!(file.fsync());
-//     check!(file.datasync());
-//     check!(file.write(b"foo"));
-//     check!(file.fsync());
-//     check!(file.datasync());
-//     drop(file);
-// }
-//
-// #[test]
-// fn truncate_works() {
-//     let tmpdir = tmpdir();
-//     let path = tmpdir.join("in.txt");
-//
-//     let mut file = check!(File::open_mode(&path, old_io::Open, old_io::ReadWrite));
-//     check!(file.write(b"foo"));
-//     check!(file.fsync());
-//
-//     // Do some simple things with truncation
-//     assert_eq!(check!(file.stat()).size, 3);
-//     check!(file.truncate(10));
-//     assert_eq!(check!(file.stat()).size, 10);
-//     check!(file.write(b"bar"));
-//     check!(file.fsync());
-//     assert_eq!(check!(file.stat()).size, 10);
-//     assert_eq!(check!(File::open(&path).read_to_end()),
-//                b"foobar\0\0\0\0".to_vec());
-//
-//     // Truncate to a smaller length, don't seek, and then write something.
-//     // Ensure that the intermediate zeroes are all filled in (we're seeked
-//     // past the end of the file).
-//     check!(file.truncate(2));
-//     assert_eq!(check!(file.stat()).size, 2);
-//     check!(file.write(b"wut"));
-//     check!(file.fsync());
-//     assert_eq!(check!(file.stat()).size, 9);
-//     assert_eq!(check!(File::open(&path).read_to_end()),
-//                b"fo\0\0\0\0wut".to_vec());
-//     drop(file);
-// }
+#[test]
+fn sync_doesnt_kill_anything() {
+    let tmpdir = tmpdir();
+    let path = tmpdir.join("in.txt");
+
+    let mut file = check!(File::create(&path));
+    check!(file.flush());
+    check!(file.flush_data());
+    check!(file.write(b"foo"));
+    check!(file.flush());
+    check!(file.flush_data());
+}
+
+#[test]
+fn truncate_works() {
+    let tmpdir = tmpdir();
+    let path = tmpdir.join("in.txt");
+
+    let mut file = check!(File::create(&path));
+    check!(file.write(b"foo"));
+    check!(file.flush());
+
+    // Do some simple things with truncation
+    assert_eq!(check!(file.file_attr()).size(), 3);
+    check!(file.seek(SeekPos::FromStart(10)));
+    check!(file.truncate());
+    check!(file.seek(SeekPos::FromStart(3)));
+    assert_eq!(check!(file.file_attr()).size(), 10);
+    check!(file.write(b"bar"));
+    check!(file.flush());
+    assert_eq!(check!(file.file_attr()).size(), 10);
+
+    let mut v = Vec::new();
+    check!(check!(File::open(&path)).read_to_end(&mut v));
+    assert_eq!(v, b"foobar\0\0\0\0".to_vec());
+
+    // Truncate to a smaller length, don't seek, and then write something.
+    // Ensure that the intermediate zeroes are all filled in (we're seeked
+    // past the end of the file).
+    check!(file.seek(SeekPos::FromStart(2)));
+    check!(file.truncate());
+    check!(file.seek(SeekPos::FromStart(6)));
+    assert_eq!(check!(file.file_attr()).size(), 2);
+    check!(file.write(b"wut"));
+    check!(file.flush());
+    assert_eq!(check!(file.file_attr()).size(), 9);
+    let mut v = Vec::new();
+    check!(check!(File::open(&path)).read_to_end(&mut v));
+    assert_eq!(v, b"fo\0\0\0\0wut".to_vec());
+}
 
 #[test]
 fn open_flavors() {
@@ -707,28 +712,28 @@ fn open_flavors() {
     assert_eq!(check!(fs::file_attr(&tmpdir.join("h"))).size(), 3);
 }
 
-// #[test]
-// fn utime() {
-//     let tmpdir = tmpdir();
-//     let path = tmpdir.join("a");
-//     check!(File::create(&path));
-//     // These numbers have to be bigger than the time in the day to account
-//     // for timezones Windows in particular will fail in certain timezones
-//     // with small enough values
-//     check!(change_file_times(&path, 100000, 200000));
-//     assert_eq!(check!(path.stat()).accessed, 100000);
-//     assert_eq!(check!(path.stat()).modified, 200000);
-// }
-//
-// #[test]
-// fn utime_noexist() {
-//     let tmpdir = tmpdir();
-//
-//     match change_file_times(&tmpdir.join("a"), 100, 200) {
-//         Ok(..) => panic!(),
-//         Err(..) => {}
-//     }
-// }
+#[test]
+fn utime() {
+    let tmpdir = tmpdir();
+    let path = tmpdir.join("a");
+    check!(File::create(&path));
+    // These numbers have to be bigger than the time in the day to account
+    // for timezones Windows in particular will fail in certain timezones
+    // with small enough values
+    check!(fs::change_file_times(&path, 100000, 200000));
+    assert_eq!(check!(path.file_attr()).accessed(), 100000);
+    assert_eq!(check!(path.file_attr()).modified(), 200000);
+}
+
+#[test]
+fn utime_noexist() {
+    let tmpdir = tmpdir();
+
+    match fs::change_file_times(&tmpdir.join("a"), 100, 200) {
+        Ok(..) => panic!(),
+        Err(..) => {}
+    }
+}
 
 #[test]
 fn binary_file() {

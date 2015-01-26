@@ -11,10 +11,12 @@
 #![allow(missing_docs)]
 
 use prelude::v1::*;
+use os::windows::*;
 
+use ffi::OsStr;
 use io::{self, ErrorKind, Error};
-use libc;
 use iter::repeat;
+use libc;
 
 // use mem;
 // use num;
@@ -46,7 +48,7 @@ pub mod c;
 pub mod fs;
 pub mod handle;
 // pub mod helper_signal;
-// pub mod os;
+pub mod os;
 // pub mod pipe;
 // pub mod process;
 // pub mod tcp;
@@ -73,7 +75,7 @@ pub mod handle;
 //     err
 // }
 
-pub fn decode_error_kind(errno: u32) -> ErrorKind {
+pub fn decode_error_kind(errno: i32) -> ErrorKind {
     match errno as libc::c_int {
         libc::EOF => ErrorKind::EndOfFile,
 
@@ -102,13 +104,16 @@ pub fn decode_error_kind(errno: u32) -> ErrorKind {
     }
 }
 
-// pub fn ms_to_timeval(ms: u64) -> libc::timeval {
-//     libc::timeval {
-//         tv_sec: (ms / 1000) as libc::c_long,
-//         tv_usec: ((ms % 1000) * 1000) as libc::c_long,
-//     }
-// }
-//
+pub fn ms_to_filetime(ms: u64) -> libc::FILETIME {
+    // A FILETIME is a count of 100 nanosecond intervals, so we multiply by
+    // 10000 b/c there are 10000 intervals in 1 ms
+    let ms = ms * 10000;
+    libc::FILETIME {
+        dwLowDateTime: ms as u32,
+        dwHighDateTime: (ms >> 32) as u32,
+    }
+}
+
 // pub fn wouldblock() -> bool {
 //     let err = os::errno();
 //     err == libc::WSAEWOULDBLOCK as uint
@@ -138,14 +143,16 @@ pub fn decode_error_kind(errno: u32) -> ErrorKind {
 
 fn to_utf16(s: Option<&str>) -> io::Result<Vec<u16>> {
     match s {
-        Some(s) => Ok({
-            let mut s = s.utf16_units().collect::<Vec<u16>>();
-            s.push(0);
-            s
-        }),
+        Some(s) => Ok(to_utf16_os(OsStr::from_str(s))),
         None => Err(Error::new(ErrorKind::InvalidInput,
                                "valid unicode input required", None)),
     }
+}
+
+fn to_utf16_os(s: &OsStr) -> Vec<u16> {
+    let mut v: Vec<_> = s.encode_wide().collect();
+    v.push(0);
+    v
 }
 
 fn fill_utf16_buf_and_decode<F>(mut f: F) -> io::Result<Vec<u16>> where
@@ -155,7 +162,22 @@ fn fill_utf16_buf_and_decode<F>(mut f: F) -> io::Result<Vec<u16>> where
         let mut n = 128;
         loop {
             let mut buf: Vec<u16> = repeat(0u16).take(n as usize).collect();
-            let k = try!(call!(f(buf.as_mut_ptr(), n)));
+
+            // This function is typically called on windows API functions which
+            // will return the correct length of the string, but these functions
+            // also return the `0` on error. In some cases, however, the
+            // returned "correct length" may actually be 0!
+            //
+            // To handle this case we call `SetLastError` to reset it to 0 and
+            // then check it again if we get the "0 error value". If the "last
+            // error" is still 0 then we interpret it as a 0 length buffer and
+            // not an actual error.
+            c::SetLastError(0);
+            let k = match f(buf.as_mut_ptr(), n) {
+                0 if libc::GetLastError() == 0 => 0,
+                0 => return Err(Error::last_os_error()),
+                n => n,
+            };
             if k == n && libc::GetLastError() ==
                             libc::ERROR_INSUFFICIENT_BUFFER as libc::DWORD {
                 n *= 2;

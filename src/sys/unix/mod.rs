@@ -44,12 +44,12 @@ macro_rules! call {
 //     };
 // ) }
 //
-// pub mod c;
-// pub mod ext;
+pub mod c;
+pub mod ext;
 pub mod fd;
 pub mod fs;
 // pub mod helper_signal;
-// pub mod os;
+pub mod os;
 // pub mod pipe;
 // pub mod process;
 // pub mod tcp;
@@ -79,7 +79,7 @@ pub mod fs;
 //     err
 // }
 
-pub fn decode_error_kind(errno: u32) -> ErrorKind {
+pub fn decode_error_kind(errno: i32) -> ErrorKind {
     match errno as libc::c_int {
         libc::EOF => ErrorKind::EndOfFile,
         libc::ECONNREFUSED => ErrorKind::ConnectionRefused,
@@ -119,14 +119,14 @@ pub fn decode_error_kind(errno: u32) -> ErrorKind {
 //         else { return n }
 //     }
 // }
-//
-// pub fn ms_to_timeval(ms: u64) -> libc::timeval {
-//     libc::timeval {
-//         tv_sec: (ms / 1000) as libc::time_t,
-//         tv_usec: ((ms % 1000) * 1000) as libc::suseconds_t,
-//     }
-// }
-//
+
+pub fn ms_to_timeval(ms: u64) -> libc::timeval {
+    libc::timeval {
+        tv_sec: (ms / 1000) as libc::time_t,
+        tv_usec: ((ms % 1000) * 1000) as libc::suseconds_t,
+    }
+}
+
 // pub fn wouldblock() -> bool {
 //     let err = os::errno();
 //     err == libc::EWOULDBLOCK as int || err == libc::EAGAIN as int
