@@ -426,89 +426,86 @@ fn unicode_path_exists() {
     assert!(!Path::new("test/unicode-bogus-path-각丁ー再见").exists());
 }
 
-// #[test]
-// fn copy_file_does_not_exist() {
-//     let from = Path::new("test/nonexistent-bogus-path");
-//     let to = Path::new("test/other-bogus-path");
-//
-//     error!(copy(&from, &to),
-//         format!("couldn't copy path (the source path is not an \
-//                 existing file; from={:?}; to={:?})",
-//                 from.display(), to.display()));
-//
-//     match copy(&from, &to) {
-//         Ok(..) => panic!(),
-//         Err(..) => {
-//             assert!(!from.exists());
-//             assert!(!to.exists());
-//         }
-//     }
-// }
-//
-// #[test]
-// fn copy_file_ok() {
-//     let tmpdir = tmpdir();
-//     let input = tmpdir.join("in.txt");
-//     let out = tmpdir.join("out.txt");
-//
-//     check!(File::create(&input).write(b"hello"));
-//     check!(copy(&input, &out));
-//     let contents = check!(File::open(&out).read_to_end());
-//     assert_eq!(contents.as_slice(), b"hello");
-//
-//     assert_eq!(check!(input.stat()).perm, check!(out.stat()).perm);
-// }
-//
-// #[test]
-// fn copy_file_dst_dir() {
-//     let tmpdir = tmpdir();
-//     let out = tmpdir.join("out");
-//
-//     check!(File::create(&out));
-//     match copy(&out, tmpdir.path()) {
-//         Ok(..) => panic!(), Err(..) => {}
-//     }
-// }
-//
-// #[test]
-// fn copy_file_dst_exists() {
-//     let tmpdir = tmpdir();
-//     let input = tmpdir.join("in");
-//     let output = tmpdir.join("out");
-//
-//     check!(File::create(&input).write("foo".as_bytes()));
-//     check!(File::create(&output).write("bar".as_bytes()));
-//     check!(copy(&input, &output));
-//
-//     assert_eq!(check!(File::open(&output).read_to_end()),
-//                b"foo".to_vec());
-// }
-//
-// #[test]
-// fn copy_file_src_dir() {
-//     let tmpdir = tmpdir();
-//     let out = tmpdir.join("out");
-//
-//     match copy(tmpdir.path(), &out) {
-//         Ok(..) => panic!(), Err(..) => {}
-//     }
-//     assert!(!out.exists());
-// }
-//
-// #[test]
-// fn copy_file_preserves_perm_bits() {
-//     let tmpdir = tmpdir();
-//     let input = tmpdir.join("in.txt");
-//     let out = tmpdir.join("out.txt");
-//
-//     check!(File::create(&input));
-//     check!(chmod(&input, old_io::USER_READ));
-//     check!(copy(&input, &out));
-//     assert!(!check!(out.stat()).perm.intersects(old_io::USER_WRITE));
-//
-//     check!(chmod(&input, old_io::USER_FILE));
-//     check!(chmod(&out, old_io::USER_FILE));
-// }
+#[test]
+fn copy_file_does_not_exist() {
+    let from = Path::new("test/nonexistent-bogus-path");
+    let to = Path::new("test/other-bogus-path");
+
+    match fs::copy(&from, &to) {
+        Ok(..) => panic!(),
+        Err(..) => {
+            assert!(!from.exists());
+            assert!(!to.exists());
+        }
+    }
+}
+
+#[test]
+fn copy_file_ok() {
+    let tmpdir = tmpdir();
+    let input = tmpdir.join("in.txt");
+    let out = tmpdir.join("out.txt");
+
+    check!(check!(File::create(&input)).write(b"hello"));
+    check!(fs::copy(&input, &out));
+    let mut v = Vec::new();
+    check!(check!(File::open(&out)).read_to_end(&mut v));
+    assert_eq!(v.as_slice(), b"hello");
+
+    assert_eq!(check!(input.file_attr()).perm(),
+               check!(out.file_attr()).perm());
+}
+
+#[test]
+fn copy_file_dst_dir() {
+    let tmpdir = tmpdir();
+    let out = tmpdir.join("out");
+
+    check!(File::create(&out));
+    match fs::copy(&out, tmpdir.path()) {
+        Ok(..) => panic!(), Err(..) => {}
+    }
+}
+
+#[test]
+fn copy_file_dst_exists() {
+    let tmpdir = tmpdir();
+    let input = tmpdir.join("in");
+    let output = tmpdir.join("out");
+
+    check!(check!(File::create(&input)).write("foo".as_bytes()));
+    check!(check!(File::create(&output)).write("bar".as_bytes()));
+    check!(fs::copy(&input, &output));
+
+    let mut v = Vec::new();
+    check!(check!(File::open(&output)).read_to_end(&mut v));
+    assert_eq!(v, b"foo".to_vec());
+}
+
+#[test]
+fn copy_file_src_dir() {
+    let tmpdir = tmpdir();
+    let out = tmpdir.join("out");
+
+    match fs::copy(tmpdir.path(), &out) {
+        Ok(..) => panic!(), Err(..) => {}
+    }
+    assert!(!out.exists());
+}
+
+#[test]
+fn copy_file_preserves_perm_bits() {
+    let tmpdir = tmpdir();
+    let input = tmpdir.join("in.txt");
+    let out = tmpdir.join("out.txt");
+
+    let attr = check!(check!(File::create(&input)).file_attr());
+    let mut p = attr.perm();
+    p.set_readonly(true);
+    check!(fs::set_perm(&input, p));
+    check!(fs::copy(&input, &out));
+    assert!(check!(out.file_attr()).perm().readonly());
+}
 
 #[cfg(not(windows))] // FIXME(#10264) operation not permitted?
 #[test]
@@ -577,24 +574,26 @@ fn links_work() {
     }
 }
 
-// #[test]
-// fn chmod_works() {
-//     let tmpdir = tmpdir();
-//     let file = tmpdir.join("in.txt");
-//
-//     check!(File::create(&file));
-//     assert!(check!(stat(&file)).perm.contains(old_io::USER_WRITE));
-//     check!(chmod(&file, old_io::USER_READ));
-//     assert!(!check!(stat(&file)).perm.contains(old_io::USER_WRITE));
-//
-//     match chmod(&tmpdir.join("foo"), old_io::USER_RWX) {
-//         Ok(..) => panic!("wanted a panic"),
-//         Err(..) => {}
-//     }
-//
-//     check!(chmod(&file, old_io::USER_FILE));
-// }
-//
+#[test]
+fn chmod_works() {
+    let tmpdir = tmpdir();
+    let file = tmpdir.join("in.txt");
+
+    check!(File::create(&file));
+    let attr = check!(fs::file_attr(&file));
+    assert!(!attr.perm().readonly());
+    let mut p = attr.perm();
+    p.set_readonly(true);
+    check!(fs::set_perm(&file, p.clone()));
+    let attr = check!(fs::file_attr(&file));
+    assert!(attr.perm().readonly());
+
+    match fs::set_perm(&tmpdir.join("foo"), p) {
+        Ok(..) => panic!("wanted a panic"),
+        Err(..) => {}
+    }
+}
+
 // #[test]
 // fn sync_doesnt_kill_anything() {
 //     let tmpdir = tmpdir();
@@ -640,68 +639,74 @@ fn links_work() {
 //                b"fo\0\0\0\0wut".to_vec());
 //     drop(file);
 // }
-//
-// #[test]
-// fn open_flavors() {
-//     let tmpdir = tmpdir();
-//
-//     match File::open_mode(&tmpdir.join("a"), old_io::Open, old_io::Read) {
-//         Ok(..) => panic!(), Err(..) => {}
-//     }
-//
-//     // Perform each one twice to make sure that it succeeds the second time
-//     // (where the file exists)
-//     check!(File::open_mode(&tmpdir.join("b"), old_io::Open, old_io::Write));
-//     assert!(tmpdir.join("b").exists());
-//     check!(File::open_mode(&tmpdir.join("b"), old_io::Open, old_io::Write));
-//
-//     check!(File::open_mode(&tmpdir.join("c"), old_io::Open, old_io::ReadWrite));
-//     assert!(tmpdir.join("c").exists());
-//     check!(File::open_mode(&tmpdir.join("c"), old_io::Open, old_io::ReadWrite));
-//
-//     check!(File::open_mode(&tmpdir.join("d"), old_io::Append, old_io::Write));
-//     assert!(tmpdir.join("d").exists());
-//     check!(File::open_mode(&tmpdir.join("d"), old_io::Append, old_io::Write));
-//
-//     check!(File::open_mode(&tmpdir.join("e"), old_io::Append, old_io::ReadWrite));
-//     assert!(tmpdir.join("e").exists());
-//     check!(File::open_mode(&tmpdir.join("e"), old_io::Append, old_io::ReadWrite));
-//
-//     check!(File::open_mode(&tmpdir.join("f"), old_io::Truncate, old_io::Write));
-//     assert!(tmpdir.join("f").exists());
-//     check!(File::open_mode(&tmpdir.join("f"), old_io::Truncate, old_io::Write));
-//
-//     check!(File::open_mode(&tmpdir.join("g"), old_io::Truncate, old_io::ReadWrite));
-//     assert!(tmpdir.join("g").exists());
-//     check!(File::open_mode(&tmpdir.join("g"), old_io::Truncate, old_io::ReadWrite));
-//
-//     check!(File::create(&tmpdir.join("h")).write("foo".as_bytes()));
-//     check!(File::open_mode(&tmpdir.join("h"), old_io::Open, old_io::Read));
-//     {
-//         let mut f = check!(File::open_mode(&tmpdir.join("h"), old_io::Open,
-//                                            old_io::Read));
-//         match f.write("wut".as_bytes()) {
-//             Ok(..) => panic!(), Err(..) => {}
-//         }
-//     }
-//     assert!(check!(stat(&tmpdir.join("h"))).size == 3,
-//             "write/stat failed");
-//     {
-//         let mut f = check!(File::open_mode(&tmpdir.join("h"), old_io::Append,
-//                                            old_io::Write));
-//         check!(f.write("bar".as_bytes()));
-//     }
-//     assert!(check!(stat(&tmpdir.join("h"))).size == 6,
-//             "append didn't append");
-//     {
-//         let mut f = check!(File::open_mode(&tmpdir.join("h"), old_io::Truncate,
-//                                            old_io::Write));
-//         check!(f.write("bar".as_bytes()));
-//     }
-//     assert!(check!(stat(&tmpdir.join("h"))).size == 3,
-//             "truncate didn't truncate");
-// }
-//
+
+#[test]
+fn open_flavors() {
+    use io2::fs::OpenOptions as OO;
+    fn c<T: Clone>(t: &T) -> T { t.clone() }
+
+    let tmpdir = tmpdir();
+
+    let mut r = OO::new(); r.read(true);
+    let mut w = OO::new(); w.write(true);
+    let mut rw = OO::new(); rw.write(true).read(true);
+
+    match File::open_opts(&tmpdir.join("a"), &r) {
+        Ok(..) => panic!(), Err(..) => {}
+    }
+
+    // Perform each one twice to make sure that it succeeds the second time
+    // (where the file exists)
+    check!(File::open_opts(&tmpdir.join("b"), c(&w).create(true)));
+    assert!(tmpdir.join("b").exists());
+    check!(File::open_opts(&tmpdir.join("b"), c(&w).create(true)));
+    check!(File::open_opts(&tmpdir.join("b"), &w));
+
+    check!(File::open_opts(&tmpdir.join("c"), c(&rw).create(true)));
+    assert!(tmpdir.join("c").exists());
+    check!(File::open_opts(&tmpdir.join("c"), c(&rw).create(true)));
+    check!(File::open_opts(&tmpdir.join("c"), &rw));
+
+    check!(File::open_opts(&tmpdir.join("d"), c(&w).append(true).create(true)));
+    assert!(tmpdir.join("d").exists());
+    check!(File::open_opts(&tmpdir.join("d"), c(&w).append(true).create(true)));
+    check!(File::open_opts(&tmpdir.join("d"), c(&w).append(true)));
+
+    check!(File::open_opts(&tmpdir.join("e"), c(&rw).append(true).create(true)));
+    assert!(tmpdir.join("e").exists());
+    check!(File::open_opts(&tmpdir.join("e"), c(&rw).append(true).create(true)));
+    check!(File::open_opts(&tmpdir.join("e"), c(&rw).append(true)));
+
+    check!(File::open_opts(&tmpdir.join("f"), c(&w).truncate(true).create(true)));
+    assert!(tmpdir.join("f").exists());
+    check!(File::open_opts(&tmpdir.join("f"), c(&w).truncate(true).create(true)));
+    check!(File::open_opts(&tmpdir.join("f"), c(&w).truncate(true)));
+
+    check!(File::open_opts(&tmpdir.join("g"), c(&rw).truncate(true).create(true)));
+    assert!(tmpdir.join("g").exists());
+    check!(File::open_opts(&tmpdir.join("g"), c(&rw).truncate(true).create(true)));
+    check!(File::open_opts(&tmpdir.join("g"), c(&rw).truncate(true)));
+
+    check!(check!(File::create(&tmpdir.join("h"))).write("foo".as_bytes()));
+    check!(File::open_opts(&tmpdir.join("h"), &r));
+    {
+        let mut f = check!(File::open_opts(&tmpdir.join("h"), &r));
+        assert!(f.write("wut".as_bytes()).is_err());
+    }
+    assert_eq!(check!(fs::file_attr(&tmpdir.join("h"))).size(), 3);
+    {
+        let mut f = check!(File::open_opts(&tmpdir.join("h"), c(&w).append(true)));
+        check!(f.write("bar".as_bytes()));
+    }
+    assert_eq!(check!(fs::file_attr(&tmpdir.join("h"))).size(), 6);
+    {
+        let mut f = check!(File::open_opts(&tmpdir.join("h"),
+                                           c(&w).truncate(true)));
+        check!(f.write("bar".as_bytes()));
+    }
+    assert_eq!(check!(fs::file_attr(&tmpdir.join("h"))).size(), 3);
+}
+
 // #[test]
 // fn utime() {
 //     let tmpdir = tmpdir();
@@ -738,11 +743,13 @@ fn binary_file() {
     assert!(v == bytes.as_slice());
 }
 
-// #[test]
-// fn unlink_readonly() {
-//     let tmpdir = tmpdir();
-//     let path = tmpdir.join("file");
-//     check!(File::create(&path));
-//     check!(chmod(&path, old_io::USER_READ));
-//     check!(unlink(&path));
-// }
+#[test]
+fn unlink_readonly() {
+    let tmpdir = tmpdir();
+    let path = tmpdir.join("file");
+    check!(File::create(&path));
+    let mut perm = check!(fs::file_attr(&path)).perm();
+    perm.set_readonly(true);
+    check!(fs::set_perm(&path, perm));
+    check!(fs::remove_file(&path));
+}

@@ -14,12 +14,8 @@ use core::prelude::*;
 
 use io::{self, Error, ErrorKind, Read, Write, Seek, SeekPos};
 use path::{Path, GenericPath};
-use path;
-use string::String;
-use vec::Vec;
-
 use sys::fs as fs_imp;
-use sys_common;
+use vec::Vec;
 
 /// Unconstrained file access type that exposes read and write operations
 ///
@@ -40,7 +36,10 @@ pub struct File {
 pub struct FileAttr(fs_imp::FileAttr);
 pub struct ReadDir(fs_imp::ReadDir);
 pub struct DirEntry(fs_imp::DirEntry);
+#[derive(Clone)]
 pub struct OpenOptions(fs_imp::OpenOptions);
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FilePermission(fs_imp::FilePermission);
 
 impl File {
     /// Open a file at `path` in the mode specified by the `mode` and `access`
@@ -88,7 +87,7 @@ impl File {
         // it: fd=open("/tmp", O_RDONLY); read(fd, buf, N); due to an old
         // tradition before the introduction of opendir(3).  We explicitly
         // reject it because there are few use cases.
-        if cfg!(not(any(windows, target_os = "linux", target_os = "android"))) &&
+        if cfg!(not(any(target_os = "linux", target_os = "android"))) &&
            try!(inner.file_attr()).is_dir() {
             Err(Error::new(ErrorKind::InvalidInput, "is a directory", None))
         } else {
@@ -225,6 +224,14 @@ impl FileAttr {
     pub fn is_dir(&self) -> bool { self.0.is_dir() }
     pub fn is_file(&self) -> bool { self.0.is_file() }
     pub fn size(&self) -> u64 { self.0.size() }
+    pub fn perm(&self) -> FilePermission { FilePermission(self.0.perm()) }
+}
+
+impl FilePermission {
+    pub fn readonly(&self) -> bool { self.0.readonly() }
+    pub fn set_readonly(&mut self, readonly: bool) {
+        self.0.set_readonly(readonly)
+    }
 }
 
 impl Iterator for ReadDir {
@@ -309,56 +316,49 @@ pub fn rename(from: &Path, to: &Path) -> io::Result<()> {
     fs_imp::rename(from, to)
 }
 
-// /// Copies the contents of one file to another. This function will also
-// /// copy the permission bits of the original file to the destination file.
-// ///
-// /// Note that if `from` and `to` both point to the same file, then the file
-// /// will likely get truncated by this operation.
-// ///
-// /// # Example
-// ///
-// /// ```rust
-// /// # #![allow(unused_must_use)]
-// /// use std::old_io::fs;
-// ///
-// /// fs::copy(&Path::new("foo.txt"), &Path::new("bar.txt"));
-// /// ```
-// ///
-// /// # Error
-// ///
-// /// This function will return an error in the following situations, but is not
-// /// limited to just these cases:
-// ///
-// /// * The `from` path is not a file
-// /// * The `from` file does not exist
-// /// * The current process does not have the permission rights to access
-// ///   `from` or write `to`
-// ///
-// /// Note that this copy is not atomic in that once the destination is
-// /// ensured to not exist, there is nothing preventing the destination from
-// /// being created and then destroyed by this operation.
-// pub fn copy(from: &Path, to: &Path) -> IoResult<()> {
-//     fn update_err<T>(result: IoResult<T>, from: &Path, to: &Path) -> IoResult<T> {
-//         result.update_err("couldn't copy path", |e| {
-//             format!("{}; from={:?}; to={:?}", e, from.display(), to.display())
-//         })
-//     }
-//
-//     if !from.is_file() {
-//         return update_err(Err(IoError {
-//             kind: old_io::MismatchedFileTypeForOperation,
-//             desc: "the source path is not an existing file",
-//             detail: None
-//         }), from, to)
-//     }
-//
-//     let mut reader = try!(File::open(from));
-//     let mut writer = try!(File::create(to));
-//
-//     try!(update_err(super::util::copy(&mut reader, &mut writer), from, to));
-//
-//     chmod(to, try!(update_err(from.stat(), from, to)).perm)
-// }
+/// Copies the contents of one file to another. This function will also
+/// copy the permission bits of the original file to the destination file.
+///
+/// Note that if `from` and `to` both point to the same file, then the file
+/// will likely get truncated by this operation.
+///
+/// # Example
+///
+/// ```rust
+/// # #![allow(unused_must_use)]
+/// use std::old_io::fs;
+///
+/// fs::copy(&Path::new("foo.txt"), &Path::new("bar.txt"));
+/// ```
+///
+/// # Error
+///
+/// This function will return an error in the following situations, but is not
+/// limited to just these cases:
+///
+/// * The `from` path is not a file
+/// * The `from` file does not exist
+/// * The current process does not have the permission rights to access
+///   `from` or write `to`
+///
+/// Note that this copy is not atomic in that once the destination is
+/// ensured to not exist, there is nothing preventing the destination from
+/// being created and then destroyed by this operation.
+pub fn copy(from: &Path, to: &Path) -> io::Result<u64> {
+    if !from.is_file() {
+        return Err(Error::new(ErrorKind::MismatchedFileTypeForOperation,
+                              "the source path is not an existing file",
+                              None))
+    }
+
+    let mut reader = try!(File::open(from));
+    let mut writer = try!(File::create(to));
+    let perm = try!(reader.file_attr()).perm();
+
+    let ret = try!(io::copy(&mut reader, &mut writer));
+    try!(set_perm(to, perm));
+    Ok(ret)
+}
 
 /// Creates a new hard link on the filesystem. The `dst` path will be a
 /// link pointing to the `src` path. Note that systems often require these
@@ -445,14 +445,19 @@ pub fn remove_dir(path: &Path) -> io::Result<()> {
 pub fn remove_dir_all(path: &Path) -> io::Result<()> {
     for child in try!(read_dir(path)) {
         let child = try!(child).path();
-        let stat = try!(fs_imp::lstat(&child));
+        let stat = try!(lstat(&child));
         if stat.is_dir() {
             try!(remove_dir_all(&child));
         } else {
             try!(remove_file(&child));
         }
     }
-    remove_dir(path)
+    return remove_dir(path);
+
+    #[cfg(unix)]
+    fn lstat(path: &Path) -> io::Result<fs_imp::FileAttr> { fs_imp::lstat(path) }
+    #[cfg(windows)]
+    fn lstat(path: &Path) -> io::Result<fs_imp::FileAttr> { fs_imp::stat(path) }
 }
 
 /// Retrieve a vector containing all entries within a provided directory
@@ -526,6 +531,7 @@ impl Iterator for WalkDir {
                     None => {}
                 }
             }
+            self.cur = None;
             match self.stack.pop() {
                 Some(Err(e)) => return Some(Err(e)),
                 Some(Ok(next)) => self.cur = Some(next),
@@ -585,34 +591,32 @@ impl PathExt for Path {
 //            .update_err("couldn't change_file_times", |e|
 //                format!("{}; path={}", e, path.display()))
 // }
-//
-// /// Changes the permission mode bits found on a file or a directory. This
-// /// function takes a mask from the `io` module
-// ///
-// /// # Example
-// ///
-// /// ```rust
-// /// # #![allow(unused_must_use)]
-// /// use std::old_io;
-// /// use std::old_io::fs;
-// ///
-// /// fs::chmod(&Path::new("file.txt"), old_io::USER_FILE);
-// /// fs::chmod(&Path::new("file.txt"), old_io::USER_READ | old_io::USER_WRITE);
-// /// fs::chmod(&Path::new("dir"),      old_io::USER_DIR);
-// /// fs::chmod(&Path::new("file.exe"), old_io::USER_EXEC);
-// /// ```
-// ///
-// /// # Error
-// ///
-// /// This function will return an error if the provided `path` doesn't exist, if
-// /// the process lacks permissions to change the attributes of the file, or if
-// /// some other I/O error is encountered.
-// pub fn chmod(path: &Path, mode: old_io::FilePermission) -> IoResult<()> {
-//     fs_imp::chmod(path, mode.bits() as uint)
-//            .update_err("couldn't chmod path", |e|
-//                format!("{}; path={}; mode={:?}", e, path.display(), mode))
-// }
-//
+
+/// Changes the permission mode bits found on a file or a directory. This
+/// function takes a mask from the `io` module
+///
+/// # Example
+///
+/// ```rust
+/// # #![allow(unused_must_use)]
+/// use std::old_io;
+/// use std::old_io::fs;
+///
+/// fs::chmod(&Path::new("file.txt"), old_io::USER_FILE);
+/// fs::chmod(&Path::new("file.txt"), old_io::USER_READ | old_io::USER_WRITE);
+/// fs::chmod(&Path::new("dir"),      old_io::USER_DIR);
+/// fs::chmod(&Path::new("file.exe"), old_io::USER_EXEC);
+/// ```
+///
+/// # Error
+///
+/// This function will return an error if the provided `path` doesn't exist, if
+/// the process lacks permissions to change the attributes of the file, or if
+/// some other I/O error is encountered.
+pub fn set_perm(path: &Path, perm: FilePermission) -> io::Result<()> {
+    fs_imp::set_perm(path, perm.0)
+}
+
 // /// Change the user and group owners of a file at the specified path.
 // pub fn chown(path: &Path, uid: int, gid: int) -> IoResult<()> {
 //     fs_imp::chown(path, uid, gid)

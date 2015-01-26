@@ -11,22 +11,17 @@
 //! Blocking posix-based file I/O
 
 use core::prelude::*;
+use io::prelude::*;
 
 use ffi::{self, CString};
-use io::prelude::*;
 use io::{self, Error, Seek, SeekPos};
 use libc::{self, c_int, c_void, size_t, off_t, c_char, mode_t};
 use mem;
 use path::{Path, GenericPath};
 use ptr;
 use rc::Rc;
+use sys::fd::FileDesc;
 use vec::Vec;
-// use sys::retry;
-// use sys_common::{keep_going, eof, mkerr_libc};
-
-pub struct FileDesc {
-    fd: c_int,
-}
 
 pub struct File(FileDesc);
 
@@ -45,6 +40,7 @@ pub struct DirEntry {
     root: Rc<Path>,
 }
 
+#[derive(Clone)]
 pub struct OpenOptions {
     flags: c_int,
     read: bool,
@@ -52,106 +48,8 @@ pub struct OpenOptions {
     mode: mode_t,
 }
 
-impl FileDesc {
-    pub fn new(fd: c_int) -> FileDesc {
-        FileDesc { fd: fd }
-    }
-
-    pub fn raw(&self) -> c_int { self.fd }
-//
-//     pub fn fsync(&self) -> IoResult<()> {
-//         mkerr_libc(retry(|| unsafe { libc::fsync(self.fd()) }))
-//     }
-//
-//     pub fn datasync(&self) -> IoResult<()> {
-//         return mkerr_libc(os_datasync(self.fd()));
-//
-//         #[cfg(any(target_os = "macos", target_os = "ios"))]
-//         fn os_datasync(fd: c_int) -> c_int {
-//             unsafe { libc::fcntl(fd, libc::F_FULLFSYNC) }
-//         }
-//         #[cfg(target_os = "linux")]
-//         fn os_datasync(fd: c_int) -> c_int {
-//             retry(|| unsafe { libc::fdatasync(fd) })
-//         }
-//         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux")))]
-//         fn os_datasync(fd: c_int) -> c_int {
-//             retry(|| unsafe { libc::fsync(fd) })
-//         }
-//     }
-//
-//     pub fn truncate(&self, offset: i64) -> IoResult<()> {
-//         mkerr_libc(retry(|| unsafe {
-//             libc::ftruncate(self.fd(), offset as libc::off_t)
-//         }))
-//     }
-//
-//     pub fn fstat(&self) -> IoResult<FileStat> {
-//         let mut stat: libc::stat = unsafe { mem::zeroed() };
-//         match unsafe { libc::fstat(self.fd(), &mut stat) } {
-//             0 => Ok(mkstat(&stat)),
-//             _ => Err(super::last_error()),
-//         }
-//     }
-//
-    /// Extract the actual filedescriptor without closing it.
-    pub fn unwrap(self) -> c_int {
-        let fd = self.fd;
-        unsafe { mem::forget(self) };
-        fd
-    }
-}
-
-impl Read for FileDesc {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let ret = try!(call!(unsafe {
-            libc::read(self.fd,
-                       buf.as_mut_ptr() as *mut c_void,
-                       buf.len() as size_t)
-        }));
-        Ok(ret as usize)
-    }
-}
-
-impl Write for FileDesc {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let ret = try!(call!(unsafe {
-            libc::write(self.fd,
-                        buf.as_ptr() as *const c_void,
-                        buf.len() as size_t)
-        }));
-        Ok(ret as usize)
-    }
-}
-
-impl Seek for FileDesc {
-    fn seek(&mut self, pos: SeekPos) -> io::Result<u64> {
-        let (whence, pos) = match pos {
-            SeekPos::FromStart(off) => (libc::SEEK_SET, off as off_t),
-            SeekPos::FromEnd(off) => (libc::SEEK_END, off as off_t),
-            SeekPos::FromCur(off) => (libc::SEEK_CUR, off as off_t),
-        };
-        let n = try!(call!(unsafe { libc::lseek(self.fd, pos, whence) }));
-        Ok(n as u64)
-    }
-}
-
-impl Drop for FileDesc {
-    fn drop(&mut self) {
-        // closing stdio file handles makes no sense, so never do it. Also, note
-        // that errors are ignored when closing a file descriptor. The reason
-        // for this is that if an error occurs we don't actually know if the
-        // file descriptor was closed or not, and if we retried (for something
-        // like EINTR), we might close another valid file descriptor (opened
-        // after we closed ours.
-        if self.fd > libc::STDERR_FILENO {
-            let n = unsafe { libc::close(self.fd) };
-            if n != 0 {
-                panic!("error {} when closing file descriptor {}", n, self.fd);
-            }
-        }
-    }
-}
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct FilePermission { mode: mode_t }
 
 impl FileAttr {
     pub fn is_dir(&self) -> bool {
@@ -161,6 +59,9 @@ impl FileAttr {
         (self.stat.st_mode as mode_t) & libc::S_IFMT == libc::S_IFREG
     }
     pub fn size(&self) -> u64 { self.stat.st_size as u64 }
+    pub fn perm(&self) -> FilePermission {
+        FilePermission { mode: (self.stat.st_mode as mode_t) & 0o777 }
+    }
 
 // fn mkstat(stat: &libc::stat) -> FileStat {
 //     // FileStat times are in milliseconds
@@ -204,6 +105,17 @@ impl FileAttr {
 //         },
 //     }
 // }
+}
+
+impl FilePermission {
+    pub fn readonly(&self) -> bool { self.mode & 0o222 == 0 }
+    pub fn set_readonly(&mut self, readonly: bool) {
+        if readonly {
+            self.mode &= !0o222;
+        } else {
+            self.mode |= 0o222;
+        }
+    }
 }
 
 impl Iterator for ReadDir {
@@ -322,9 +234,45 @@ impl File {
 
     pub fn file_attr(&self) -> io::Result<FileAttr> {
         let mut stat: libc::stat = unsafe { mem::zeroed() };
-        try!(call!(unsafe { libc::fstat(self.0.fd, &mut stat) }));
+        try!(call!(unsafe { libc::fstat(self.0.raw(), &mut stat) }));
         Ok(FileAttr { stat: stat })
     }
+//
+//     pub fn fsync(&self) -> IoResult<()> {
+//         mkerr_libc(retry(|| unsafe { libc::fsync(self.fd()) }))
+//     }
+//
+//     pub fn datasync(&self) -> IoResult<()> {
+//         return mkerr_libc(os_datasync(self.fd()));
+//
+//         #[cfg(any(target_os = "macos", target_os = "ios"))]
+//         fn os_datasync(fd: c_int) -> c_int {
+//             unsafe { libc::fcntl(fd, libc::F_FULLFSYNC) }
+//         }
+//         #[cfg(target_os = "linux")]
+//         fn os_datasync(fd: c_int) -> c_int {
+//             retry(|| unsafe { libc::fdatasync(fd) })
+//         }
+//         #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "linux")))]
+//         fn os_datasync(fd: c_int) -> c_int {
+//             retry(|| unsafe { libc::fsync(fd) })
+//         }
+//     }
+//
+//     pub fn truncate(&self, offset: i64) -> IoResult<()> {
+//         mkerr_libc(retry(|| unsafe {
+//             libc::ftruncate(self.fd(), offset as libc::off_t)
+//         }))
+//     }
+//
+//     pub fn fstat(&self) -> IoResult<FileStat> {
+//         let mut stat: libc::stat = unsafe { mem::zeroed() };
+//         match unsafe { libc::fstat(self.fd(), &mut stat) } {
+//             0 => Ok(mkstat(&stat)),
+//             _ => Err(super::last_error()),
+//         }
+//     }
+//
 }
 
 impl Read for File {
@@ -339,7 +287,13 @@ impl Write for File {
 }
 impl Seek for File {
     fn seek(&mut self, pos: SeekPos) -> io::Result<u64> {
-        self.0.seek(pos)
+        let (whence, pos) = match pos {
+            SeekPos::FromStart(off) => (libc::SEEK_SET, off as off_t),
+            SeekPos::FromEnd(off) => (libc::SEEK_END, off as off_t),
+            SeekPos::FromCur(off) => (libc::SEEK_CUR, off as off_t),
+        };
+        let n = try!(call!(unsafe { libc::lseek(self.0.raw(), pos, whence) }));
+        Ok(n as u64)
     }
 }
 
@@ -379,13 +333,12 @@ pub fn rename(old: &Path, new: &Path) -> io::Result<()> {
     Ok(())
 }
 
-// pub fn chmod(p: &Path, mode: uint) -> IoResult<()> {
-//     let p = cstr(p);
-//     mkerr_libc(retry(|| unsafe {
-//         libc::chmod(p.as_ptr(), mode as libc::mode_t)
-//     }))
-// }
-//
+pub fn set_perm(p: &Path, perm: FilePermission) -> io::Result<()> {
+    let p = cstr(p);
+    try!(call!(unsafe { libc::chmod(p.as_ptr(), perm.mode) }));
+    Ok(())
+}
+
 pub fn rmdir(p: &Path) -> io::Result<()> {
     let p = cstr(p);
     try!(call!(unsafe { libc::rmdir(p.as_ptr()) }));

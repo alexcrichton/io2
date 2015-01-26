@@ -8,39 +8,11 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-#![allow(missing_docs)]
-#![allow(dead_code)]
-
-use prelude::v1::*;
-
-// use old_io::{self, IoError, IoResult};
-// use sys::{last_error, retry};
-use ffi::CString;
-use num::Int;
-use path::BytesContainer;
-use collections;
-
-// pub mod backtrace;
-// pub mod condvar;
 // pub mod helper_thread;
-// pub mod mutex;
 // pub mod net;
-// pub mod rwlock;
-// pub mod stack;
-// pub mod thread;
-// pub mod thread_info;
-// pub mod thread_local;
 
 // common error constructors
 
-// pub fn eof() -> IoError {
-//     IoError {
-//         kind: old_io::EndOfFile,
-//         desc: "end of file",
-//         detail: None,
-//     }
-// }
-//
 // pub fn timeout(desc: &'static str) -> IoError {
 //     IoError {
 //         kind: old_io::TimedOut,
@@ -63,35 +35,6 @@ use collections;
 //         desc: "operations not yet supported",
 //         detail: None,
 //     }
-// }
-
-// unix has nonzero values as errors
-// pub fn mkerr_libc<T: Int>(ret: T) -> IoResult<()> {
-//     if ret != Int::zero() {
-//         Err(last_error())
-//     } else {
-//         Ok(())
-//     }
-// }
-
-// pub fn keep_going<F>(data: &[u8], mut f: F) -> i64 where
-//     F: FnMut(*const u8, uint) -> i64,
-// {
-//     let origamt = data.len();
-//     let mut data = data.as_ptr();
-//     let mut amt = origamt;
-//     while amt > 0 {
-//         let ret = retry(|| f(data, amt));
-//         if ret == 0 {
-//             break
-//         } else if ret != -1 {
-//             amt -= ret as uint;
-//             data = unsafe { data.offset(ret as int) };
-//         } else {
-//             return ret;
-//         }
-//     }
-//     return (origamt - amt) as i64;
 // }
 
 // A trait for extracting representations from std::io types
