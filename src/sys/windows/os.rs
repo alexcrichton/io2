@@ -136,26 +136,21 @@ pub fn env() -> Env {
     }
 }
 
-pub struct SplitPaths {
-    data: Vec<u16>,
-    pos: usize,
+pub struct SplitPaths<'a> {
+    data: EncodeWide<'a>,
     must_yield: bool,
 }
 
 pub fn split_paths(unparsed: &OsStr) -> SplitPaths {
     SplitPaths {
-        data: unparsed.encode_wide().collect(),
-        pos: 0,
+        data: unparsed.encode_wide(),
         must_yield: true,
     }
 }
 
-impl Iterator for SplitPaths {
+impl<'a> Iterator for SplitPaths<'a> {
     type Item = Path;
     fn next(&mut self) -> Option<Path> {
-        if !self.must_yield && self.pos == self.data.len() { return None }
-        self.must_yield = false;
-
         // On Windows, the PATH environment variable is semicolon separated.
         // Double quotes are used as a way of introducing literal semicolons
         // (since c:\some;dir is a valid Windows path). Double quotes are not
@@ -170,23 +165,29 @@ impl Iterator for SplitPaths {
         // for the grammar.)
 
 
+        let must_yield = self.must_yield;
+        self.must_yield = false;
+
         let mut in_progress = Vec::new();
         let mut in_quote = false;
-        for b in self.data[self.pos..].iter() {
-            self.pos += 1;
-            self.must_yield = false;
-            if *b == '"' as u16 {
+        for b in self.data {
+            if b == '"' as u16 {
                 in_quote = !in_quote;
-            } else if *b == ';' as u16 && !in_quote {
+            } else if b == ';' as u16 && !in_quote {
                 self.must_yield = true;
                 break
             } else {
-                in_progress.push(*b)
+                in_progress.push(b)
             }
         }
-        // TODO: OsString => Path
-        let s = String::from_utf16(&*in_progress).unwrap();
-        Some(Path::new(s))
+
+        if !must_yield && in_progress.is_empty() {
+            None
+        } else {
+            // TODO: OsString => Path
+            let s = String::from_utf16(&*in_progress).unwrap();
+            Some(Path::new(s))
+        }
     }
 }
 

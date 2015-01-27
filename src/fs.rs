@@ -18,11 +18,11 @@ use vec::Vec;
 /// Unconstrained file access type that exposes read and write operations
 ///
 /// Can be constructed via `File::open()`, `File::create()`, and
-/// `File::open_mode()`.
+/// `File::open_opts()`.
 ///
 /// # Error
 ///
-/// This type will return errors as an `IoResult<T>` if operations are
+/// This type will return errors as an `io::Result<T>` if operations are
 /// attempted against it for which its underlying file descriptor was not
 /// configured at creation time, via the `FileAccess` parameter to
 /// `File::open_mode()`.
@@ -81,6 +81,7 @@ impl File {
     pub fn open_opts(path: &Path,
                      opts: &OpenOptions) -> io::Result<File> {
         let inner = try!(fs_imp::File::open(path, &opts.0));
+
         // On *BSD systems, we can open a directory as a file and read from
         // it: fd=open("/tmp", O_RDONLY); read(fd, buf, N); due to an old
         // tradition before the introduction of opendir(3).  We explicitly
@@ -463,7 +464,7 @@ pub fn remove_dir_all(path: &Path) -> io::Result<()> {
 /// use std::old_io;
 ///
 /// // one possible implementation of fs::walk_dir only visiting files
-/// fn visit_dirs<F>(dir: &Path, cb: &mut F) -> old_io::IoResult<()> where
+/// fn visit_dirs<F>(dir: &Path, cb: &mut F) -> io::Result<()> where
 ///     F: FnMut(&Path),
 /// {
 ///     if dir.is_dir() {

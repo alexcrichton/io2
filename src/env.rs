@@ -48,11 +48,11 @@ use sys::os as os_imp;
 /// # Example
 ///
 /// ```rust
-/// use std::os;
+/// use std::env;
 ///
 /// // We assume that we are in a valid directory.
-/// let current_working_directory = os::getcwd().unwrap();
-/// println!("The current directory is {}", current_working_directory.display());
+/// let p = env::current_dir().unwrap();
+/// println!("The current directory is {}", p.display());
 /// ```
 pub fn current_dir() -> io::Result<Path> {
     os_imp::getcwd()
@@ -64,11 +64,11 @@ pub fn current_dir() -> io::Result<Path> {
 /// # Example
 ///
 /// ```rust
-/// use std::os;
+/// use std::env;
 /// use std::path::Path;
 ///
 /// let root = Path::new("/");
-/// assert!(os::change_dir(&root).is_ok());
+/// assert!(env::set_current_dir(&root).is_ok());
 /// println!("Successfully changed working directory to {}!", root.display());
 /// ```
 pub fn set_current_dir(p: &Path) -> io::Result<()> {
@@ -77,23 +77,28 @@ pub fn set_current_dir(p: &Path) -> io::Result<()> {
 
 static ENV_LOCK: StaticMutex = MUTEX_INIT;
 
+/// An iterator over a snapshot of the environment variables of this process.
+///
+/// This iterator is created through `std::env::vars()` and yields `(OsString,
+/// OsString)` pairs.
 pub struct Vars { inner: os_imp::Env }
 
-/// Returns a vector of (variable, value) pairs, for all the environment
+/// Returns an iterator of (variable, value) pairs, for all the environment
 /// variables of the current process.
 ///
-/// Invalid UTF-8 bytes are replaced with \uFFFD. See `String::from_utf8_lossy()`
-/// for details.
+/// The returned iterator contains a snapshot of the process's environment
+/// variables at the time of this invocation, modifications to environment
+/// variables afterwards will not be reflected in the returned iterator.
 ///
 /// # Example
 ///
 /// ```rust
-/// use std::os;
+/// use std::env;
 ///
 /// // We will iterate through the references to the element returned by
-/// // os::env();
+/// // env::vars();
 /// for (key, value) in env::vars() {
-///     println!("'{}': '{}'", key, value );
+///     println!("{:?}: {:?}", key, value);
 /// }
 /// ```
 pub fn vars() -> Vars {
@@ -110,21 +115,14 @@ impl Iterator for Vars {
 /// Fetches the environment variable `n` from the current process, returning
 /// None if the variable isn't set.
 ///
-/// Any invalid UTF-8 bytes in the value are replaced by \uFFFD. See
-/// `String::from_utf8_lossy()` for details.
-///
-/// # Panics
-///
-/// Panics if `n` has any interior NULs.
-///
 /// # Example
 ///
 /// ```rust
-/// use std::os;
+/// use std::env;
 ///
 /// let key = "HOME";
-/// match os::getenv(key) {
-///     Some(val) => println!("{}: {}", key, val),
+/// match env::var(key) {
+///     Some(val) => println!("{}: {:?}", key, val),
 ///     None => println!("{} is not defined in the environment.", key)
 /// }
 /// ```
@@ -139,12 +137,12 @@ pub fn var<K: ?Sized>(key: &K) -> Option<OsString> where K: AsOsStr {
 /// # Example
 ///
 /// ```rust
-/// use std::os;
+/// use std::env;
 ///
 /// let key = "KEY";
-/// os::setenv(key, "VALUE");
-/// match os::getenv(key) {
-///     Some(ref val) => println!("{}: {}", key, val),
+/// env::set_var(key, "VALUE");
+/// match os::var(key) {
+///     Some(ref val) => println!("{}: {:?}", key, val),
 ///     None => println!("{} is not defined in the environment.", key)
 /// }
 /// ```
@@ -161,19 +159,26 @@ pub fn remove_var<K: ?Sized>(k: &K) where K: AsOsStr {
     os_imp::unsetenv(k.as_os_str())
 }
 
-pub struct SplitPaths { inner: os_imp::SplitPaths }
+/// An iterator over `Path` instances for parsing an environment variable
+/// according to platform-specific conventions.
+///
+/// This structure is returned from `std::env::split_paths`.
+pub struct SplitPaths<'a> { inner: os_imp::SplitPaths<'a> }
 
 /// Parses input according to platform conventions for the `PATH`
 /// environment variable.
 ///
+/// Returns an iterator over the paths contained in `unparsed`.
+///
 /// # Example
+///
 /// ```rust
-/// use std::os;
+/// use std::env;
 ///
 /// let key = "PATH";
-/// match os::getenv_as_bytes(key) {
+/// match env::var(key) {
 ///     Some(paths) => {
-///         for path in os::split_paths(paths).iter() {
+///         for path in env::split_paths(&paths) {
 ///             println!("'{}'", path.display());
 ///         }
 ///     }
@@ -184,12 +189,14 @@ pub fn split_paths<T: AsOsStr + ?Sized>(unparsed: &T) -> SplitPaths {
     SplitPaths { inner: os_imp::split_paths(unparsed.as_os_str()) }
 }
 
-impl Iterator for SplitPaths {
+impl<'a> Iterator for SplitPaths<'a> {
     type Item = Path;
     fn next(&mut self) -> Option<Path> { self.inner.next() }
     fn size_hint(&self) -> (usize, Option<usize>) { self.inner.size_hint() }
 }
 
+/// Error type returned from `std::env::join_paths` when paths fail to be
+/// joined.
 #[derive(Show)]
 pub struct JoinPathsError {
     inner: os_imp::JoinPathsError
@@ -198,8 +205,7 @@ pub struct JoinPathsError {
 /// Joins a collection of `Path`s appropriately for the `PATH`
 /// environment variable.
 ///
-/// Returns a `Vec<u8>` on success, since `Path`s are not utf-8
-/// encoded on all platforms.
+/// Returns an `OsString` on success.
 ///
 /// Returns an `Err` (containing an error message) if one of the input
 /// `Path`s contains an invalid character for constructing the `PATH`
@@ -208,13 +214,12 @@ pub struct JoinPathsError {
 /// # Example
 ///
 /// ```rust
-/// use std::os;
-/// use std::path::Path;
+/// use std::env;
 ///
 /// let key = "PATH";
-/// let mut paths = os::getenv_as_bytes(key).map_or(Vec::new(), os::split_paths);
+/// let mut paths = env::var(key).map_or(Vec::new(), env::split_paths);
 /// paths.push(Path::new("/home/xyz/bin"));
-/// os::setenv(key, os::join_paths(paths.as_slice()).unwrap());
+/// env::setenv(key, env::join_paths(paths.as_slice()).unwrap());
 /// ```
 pub fn join_paths<'a, I, T: ?Sized>(paths: I) -> Result<OsString, JoinPathsError>
     where I: Iterator<Item=&'a T>, T: AsOsStr
@@ -251,9 +256,9 @@ impl Error for JoinPathsError {
 /// # Example
 ///
 /// ```rust
-/// use std::os;
+/// use std::env;
 ///
-/// match os::homedir() {
+/// match env::homedir() {
 ///     Some(ref p) => println!("{}", p.display()),
 ///     None => println!("Impossible to get your home dir!")
 /// }
@@ -301,9 +306,9 @@ fn env_path(key: &str) -> Option<Path> {
 /// # Examples
 ///
 /// ```rust
-/// use std::os;
+/// use std::env;
 ///
-/// match os::self_exe_name() {
+/// match env::current_exe() {
 ///     Some(exe_path) => println!("Path of this executable is: {}",
 ///                                exe_path.display()),
 ///     None => println!("Unable to get the path of this executable!")
@@ -323,36 +328,39 @@ static EXIT_STATUS: AtomicIsize = ATOMIC_ISIZE_INIT;
 /// ignored and the process exits with the default panic status.
 ///
 /// Note that this is not synchronized against modifications of other threads.
+#[unstable]
 pub fn set_exit_status(code: i32) {
     EXIT_STATUS.store(code as isize, Ordering::SeqCst)
 }
 
 /// Fetches the process's current exit code. This defaults to 0 and can change
 /// by calling `set_exit_status`.
+#[unstable]
 pub fn get_exit_status() -> i32 {
     EXIT_STATUS.load(Ordering::SeqCst) as i32
 }
 
+/// An iterator over the arguments of a process, yielding an `OsString` value
+/// for each argument.
+///
+/// This structure is created through the `std::env::args` method.
 pub struct Args { inner: os_imp::Args }
 
 /// Returns the arguments which this program was started with (normally passed
 /// via the command line).
 ///
 /// The first element is traditionally the path to the executable, but it can be
-/// set to arbitrary text, and it may not even exist, so this property should not
-/// be relied upon for security purposes.
-///
-/// The arguments are interpreted as utf-8, with invalid bytes replaced with
-/// \uFFFD.  See `String::from_utf8_lossy` for details.
+/// set to arbitrary text, and it may not even exist, so this property should
+/// not be relied upon for security purposes.
 ///
 /// # Example
 ///
 /// ```rust
-/// use std::os;
+/// use std::env;
 ///
 /// // Prints each argument on a separate line
-/// for argument in os::args().iter() {
-///     println!("{}", argument);
+/// for argument in env::args() {
+///     println!("{:?}", argument);
 /// }
 /// ```
 pub fn args() -> Args {

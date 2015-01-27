@@ -17,8 +17,10 @@ use error::Error as StdError;
 use ffi::{self, CString, OsString, OsStr, AsOsStr};
 use fmt;
 use io::{self, Error};
+use iter;
 use libc::{self, c_int, c_char, c_void};
 use ptr;
+use slice;
 use str;
 use vec;
 
@@ -112,15 +114,22 @@ pub fn chdir(p: &Path) -> io::Result<()> {
     }
 }
 
-pub struct SplitPaths { iter: vec::IntoIter<Path> }
-
-pub fn split_paths(unparsed: &OsStr) -> SplitPaths {
-    let unparsed = unparsed.as_byte_slice();
-    let v: Vec<_> = unparsed.split(|b| *b == b':').map(Path::new).collect();
-    SplitPaths { iter: v.into_iter() }
+pub struct SplitPaths<'a> {
+    iter: iter::Map<&'a [u8], Path,
+                    slice::Split<'a, u8, fn(&u8) -> bool>,
+                    fn(&'a [u8]) -> Path>,
 }
 
-impl Iterator for SplitPaths {
+pub fn split_paths<'a>(unparsed: &'a OsStr) -> SplitPaths<'a> {
+    fn is_colon(b: &u8) -> bool { *b == b':' }
+    let unparsed = unparsed.as_byte_slice();
+    SplitPaths {
+        iter: unparsed.split(is_colon as fn(&u8) -> bool)
+                      .map(Path::new as fn(&'a [u8]) ->  Path)
+    }
+}
+
+impl<'a> Iterator for SplitPaths<'a> {
     type Item = Path;
     fn next(&mut self) -> Option<Path> { self.iter.next() }
     fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
