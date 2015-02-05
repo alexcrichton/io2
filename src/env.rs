@@ -264,7 +264,7 @@ impl Error for JoinPathsError {
 /// }
 /// ```
 pub fn home_dir() -> Option<Path> {
-    env_path("HOME").or(if cfg!(windows) {env_path("USERPROFILE")} else {None})
+    os_imp::homedi()
 }
 
 /// Returns the path to a temporary directory.

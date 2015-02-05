@@ -18,7 +18,7 @@
 use prelude::v1::*;
 
 use ffi;
-use io::ErrorKind;
+use io::{self, ErrorKind};
 use libc;
 use num::{Int, SignedInt};
 use num;
@@ -50,6 +50,7 @@ pub mod fd;
 pub mod fs;
 // pub mod helper_signal;
 pub mod os;
+pub mod net;
 // pub mod pipe;
 // pub mod process;
 // pub mod tcp;
@@ -136,3 +137,24 @@ pub fn ms_to_timeval(ms: u64) -> libc::timeval {
 //     let set = nb as libc::c_int;
 //     mkerr_libc(retry(|| unsafe { c::ioctl(fd, c::FIONBIO, &set) }))
 // }
+
+pub fn cvt<T: SignedInt>(t: T) -> io::Result<T> {
+    let one: T = Int::one();
+    if t == -one {
+        Err(io::Error::last_os_error())
+    } else {
+        Ok(t)
+    }
+}
+
+pub fn cvt_r<T, F>(mut f: F) -> io::Result<T>
+    where T: SignedInt, F: FnMut() -> T
+{
+    loop {
+        match cvt(f()) {
+            Err(ref e) if e.kind() == ErrorKind::Interrupted => {}
+            other => return other,
+        }
+    }
+}
+

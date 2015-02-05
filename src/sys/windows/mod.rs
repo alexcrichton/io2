@@ -46,6 +46,7 @@ macro_rules! call {
 pub mod c;
 // pub mod ext;
 pub mod fs;
+pub mod net;
 pub mod handle;
 // pub mod helper_signal;
 pub mod os;

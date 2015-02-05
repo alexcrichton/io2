@@ -14,6 +14,7 @@ use io::prelude::*;
 use io;
 use libc::{self, c_int, size_t, c_void};
 use mem;
+use sys_common::AsInner;
 
 pub struct FileDesc {
     fd: c_int,
@@ -31,6 +32,18 @@ impl FileDesc {
         unsafe { mem::forget(self) };
         fd
     }
+    pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {
+        let ret = try!(call!(unsafe {
+            libc::read(self.fd,
+                       buf.as_mut_ptr() as *mut c_void,
+                       buf.len() as size_t)
+        }));
+        Ok(ret as usize)
+    }
+}
+
+impl AsInner<c_int> for FileDesc {
+    fn as_inner(&self) -> &c_int { &self.fd }
 }
 
 impl Read for FileDesc {

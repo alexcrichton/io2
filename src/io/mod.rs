@@ -360,7 +360,7 @@ pub trait Seek {
 }
 
 /// Enumeration of possible methods to seek within an I/O object.
-#[derive(Copy, PartialEq, Eq, Clone, Show)]
+#[derive(Copy, PartialEq, Eq, Clone, Debug)]
 pub enum SeekPos {
     /// Set the offset to the provided number of bytes.
     FromStart(u64),
@@ -513,7 +513,7 @@ pub struct Chars<R> {
 
 /// An enumeration of possible errors that can be generated from the `Chars`
 /// adapter.
-#[derive(PartialEq, Clone, Show)]
+#[derive(PartialEq, Clone, Debug)]
 pub enum CharsError {
     /// Variant representing that the underlying stream was read successfully
     /// but it did not contain valid utf8 data.

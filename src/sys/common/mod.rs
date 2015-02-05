@@ -9,7 +9,7 @@
 // except according to those terms.
 
 // pub mod helper_thread;
-// pub mod net;
+pub mod net;
 
 // common error constructors
 
@@ -40,6 +40,10 @@
 // A trait for extracting representations from std::io types
 pub trait AsInner<Inner> {
     fn as_inner(&self) -> &Inner;
+}
+
+pub trait FromInner<Inner> {
+    fn from_inner(inner: Inner) -> Self;
 }
 
 // pub trait ProcessConfig<K: BytesContainer, V: BytesContainer> {

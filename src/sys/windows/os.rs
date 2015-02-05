@@ -10,7 +10,7 @@
 
 //! Implementation of `std::os` functionality for Windows
 
-#![allow(bad_style)]
+#![allow(warnings)]
 
 use prelude::v1::*;
 use os::windows::*;
@@ -170,7 +170,7 @@ impl<'a> Iterator for SplitPaths<'a> {
 
         let mut in_progress = Vec::new();
         let mut in_quote = false;
-        for b in self.data {
+        for b in self.data.by_ref() {
             if b == '"' as u16 {
                 in_quote = !in_quote;
             } else if b == ';' as u16 && !in_quote {

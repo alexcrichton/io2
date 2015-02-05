@@ -36,7 +36,7 @@ pub struct ReadDir(fs_imp::ReadDir);
 pub struct DirEntry(fs_imp::DirEntry);
 #[derive(Clone)]
 pub struct OpenOptions(fs_imp::OpenOptions);
-#[derive(Clone, PartialEq, Eq, Show)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct FilePermission(fs_imp::FilePermission);
 
 impl File {

@@ -1,4 +1,6 @@
-#![allow(unstable)]
+#![feature(rand, path, core, os)]
+#![allow(warnings)]
+
 extern crate io2;
 
 use io2::io::prelude::*;

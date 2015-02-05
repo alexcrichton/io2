@@ -30,18 +30,18 @@ pub type Result<T> = result::Result<T, Error>;
 /// Errors mostly originate from the underlying OS, but custom instances of
 /// `Error` can be created with crafted error messages and a particular value of
 /// `ErrorKind`.
-#[derive(PartialEq, Eq, Clone, Show)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Error {
     repr: Repr,
 }
 
-#[derive(PartialEq, Eq, Clone, Show)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 enum Repr {
     Os(i32),
     Custom(Box<Custom>),
 }
 
-#[derive(PartialEq, Eq, Clone, Show)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 struct Custom {
     kind: ErrorKind,
     desc: &'static str,
@@ -49,7 +49,7 @@ struct Custom {
 }
 
 /// A list specifying general categories of I/O error.
-#[derive(Copy, PartialEq, Eq, Clone, Show)]
+#[derive(Copy, PartialEq, Eq, Clone, Debug)]
 pub enum ErrorKind {
     /// The file was not found.
     FileNotFound,
@@ -91,6 +91,7 @@ pub enum ErrorKind {
     EndOfFile,
     /// Any I/O error not part of this list.
     Other,
+    Interrupted,
 }
 
 impl Error {

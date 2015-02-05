@@ -19,9 +19,11 @@ use fmt;
 use io::{self, Error};
 use iter;
 use libc::{self, c_int, c_char, c_void};
+use mem;
 use ptr;
 use slice;
 use str;
+use sys::c;
 use vec;
 
 const BUF_BYTES: usize = 2048;
@@ -135,7 +137,7 @@ impl<'a> Iterator for SplitPaths<'a> {
     fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
 }
 
-#[derive(Show)]
+#[derive(Debug)]
 pub struct JoinPathsError;
 
 pub fn join_paths<'a, I>(paths: I) -> Result<OsString, JoinPathsError>
